@@ -1,0 +1,14 @@
+body {
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #1a1a1a; /* 深色背景更有遊戲感 */
+  font-family: monospace;
+}
+
+/* 讓像素圖片保持銳利，不要模糊 */
+canvas, img {
+  image-rendering: pixelated;
+}
