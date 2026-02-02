@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ProjectileLayer = ({ projectiles }) => {
+const ProjectileLayer = React.memo(({ projectiles }) => {
   return (
     <svg
       style={{
@@ -26,6 +26,6 @@ const ProjectileLayer = ({ projectiles }) => {
       ))}
     </svg>
   );
-};
+});
 
 export default ProjectileLayer;
