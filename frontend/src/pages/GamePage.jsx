@@ -7,6 +7,7 @@ const MAP_DATA = MAP_CONFIG['test']
 const TILE_SIZE = 40;
 const SPEED = 1;
 const PROJECTILE_SPEED = 5;
+const FIRE_COOLDOWN = 1000;
 
 const GamePage = () => {
   // 玩家座標現在是像素值
@@ -19,6 +20,9 @@ const GamePage = () => {
 
   const mapContainerRef = useRef(null);
   const requestRef = useRef();
+  const playerStatsRef = useRef({
+    lastShotTime: 0, // 上次開槍的時間戳記
+  });
   const keysPressed = useRef({}); // 紀錄目前被按住的所有按鍵
   const posRef = useRef(pos);
   const mouseRef = useRef(mousePos);
@@ -47,6 +51,13 @@ const GamePage = () => {
   };
 
   const handleShoot = () => {
+    const now = Date.now();
+    const stats = playerStatsRef.current;
+    if (now - stats.lastShotTime < FIRE_COOLDOWN) {
+      return; 
+    }
+    stats.lastShotTime = now;
+
     const currentPos = posRef.current; 
     const currentMouse = mouseRef.current;
 
