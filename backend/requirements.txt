@@ -2,3 +2,8 @@ fastapi
 uvicorn
 google-generativeai
 python-dotenv
+svgpathtools
+torch
+matplotlib
+pandas
+scikit-learn

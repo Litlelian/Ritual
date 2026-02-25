@@ -20,24 +20,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 1. 設定 Gemini API Key
-# 建議之後存放在 .env 檔案中更安全
 api_key = os.getenv("GEMINI_API_KEY")
-print(f"啟動檢查 - 讀取到的 API Key 前四碼: {api_key[:4] if api_key else '找不到 Key!'}")
 
 genai.configure(api_key=api_key)
 
-# 2. 定義咒語資料模型
 class SpellRequest(BaseModel):
     prompt: str
 
 @app.post("/generate_spell")
 async def generate_spell(request: SpellRequest):
     try:
-        # 指定模型 (Gemini 3 Flash 適合這種快速解析任務)
         model = genai.GenerativeModel('gemini-2.5-flash')
         
-        # 設定 System Prompt，確保回傳純 JSON 且使用台灣繁體慣用語
         system_instruction = (
             """
             你是一個遊戲符文設計師。你的任務是將玩家輸入的咒語轉化為符文特徵與 SVG 路徑。
@@ -65,14 +59,10 @@ async def generate_spell(request: SpellRequest):
         )
         print("Gemini 原始回傳內容：", response.text)
         
-        # 解析並回傳給前端
         return json.loads(response.text)
         
     except Exception as e:
-        # 增加除錯：印出具體的錯誤原因
-        print(f"發生嚴重錯誤：{str(e)}")
-        # 將錯誤細節傳回給前端，這樣你就不會只看到冷冰冰的 500 Error
-        raise HTTPException(status_code=500, detail=f"後端錯誤細節: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"後端錯誤: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
