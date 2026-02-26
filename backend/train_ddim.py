@@ -1,7 +1,3 @@
-import argparse
-import os
-import csv
-
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -9,7 +5,6 @@ from torch.utils.data import DataLoader
 from torch.utils.data import TensorDataset
 
 from tqdm.auto import tqdm
-import matplotlib.pyplot as plt
 import numpy as np
 from svgpathtools import parse_path
 
@@ -50,8 +45,7 @@ class MLP(nn.Module):
         x = torch.cat((x1_emb, x2_emb, t_emb), dim=-1)
         x = self.joint_mlp(x)
         return x
-
-
+    
 class NoiseScheduler():
     def __init__(self,
                  num_timesteps=1000,
@@ -116,36 +110,6 @@ class NoiseScheduler():
         s2 = s2.reshape(-1, 1)
         return s1 * x_t - s2 * noise
     
-    def q_posterior(self, x_0, x_t, t):
-        s1 = self.posterior_mean_coef1[t]
-        s2 = self.posterior_mean_coef2[t]
-        s1 = s1.reshape(-1, 1)
-        s2 = s2.reshape(-1, 1)
-        mu = s1 * x_0 + s2 * x_t
-        return mu
-
-    def get_variance(self, t):
-        if t == 0:
-            return 0
-
-        variance = self.betas[t] * (1. - self.alphas_cumprod_prev[t]) / (1. - self.alphas_cumprod[t])
-        variance = variance.clip(1e-20)
-        return variance
-
-    def step(self, model_output, timestep, sample):
-        t = timestep
-        pred_original_sample = self.reconstruct_x0(sample, t, model_output)
-        pred_prev_sample = self.q_posterior(pred_original_sample, sample, t)
-
-        variance = 0
-        if t > 0:
-            noise = torch.randn_like(model_output)
-            variance = (self.get_variance(t) ** 0.5) * noise
-
-        pred_prev_sample = pred_prev_sample + variance
-
-        return pred_prev_sample
-    
     def add_noise(self, x_start, x_noise, timesteps):
         s1 = self.sqrt_alphas_cumprod[timesteps]
         s2 = self.sqrt_one_minus_alphas_cumprod[timesteps]
@@ -157,8 +121,8 @@ class NoiseScheduler():
 
     def __len__(self):
         return self.num_timesteps
-
-def svg_path_to_2d(path_string: str, outdir: str, num_points=500, noise_scale=0.05) -> list[float]:
+    
+def svg_path_to_2d(path_string: str, num_points=500, noise_scale=0.05) -> list[float]:
     """
     將 SVG path 字串轉換為 2D 座標點, 並生成隨機偏移。
     """
@@ -182,44 +146,18 @@ def svg_path_to_2d(path_string: str, outdir: str, num_points=500, noise_scale=0.
     y = y + rng.normal(size=len(y)) * noise_scale
 
     X_final = np.stack((x, y), axis=1)
-
-    xmin, xmax = -6, 6
-    ymin, ymax = -6, 6
-    plt.figure(figsize=(10, 10))
-    plt.scatter(x, y)
-    plt.xlim(xmin, xmax)
-    plt.ylim(ymin, ymax)
-    plt.savefig(f"{outdir}/svg2dots.png")
-    plt.close()
     
     return TensorDataset(torch.from_numpy(X_final.astype(np.float32)))
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--experiment_name", type=str, default="base")
-    parser.add_argument("--train_batch_size", type=int, default=32)
-    parser.add_argument("--eval_batch_size", type=int, default=1000)
-    parser.add_argument("--num_epochs", type=int, default=100)
-    parser.add_argument("--learning_rate", type=float, default=1e-3)
-    parser.add_argument("--num_timesteps", type=int, default=100)
-    parser.add_argument("--inference_steps", type=int, default=10)
-    parser.add_argument("--beta_schedule", type=str, default="linear", choices=["linear", "quadratic"])
-    parser.add_argument("--embedding_size", type=int, default=128)
-    parser.add_argument("--hidden_size", type=int, default=128)
-    parser.add_argument("--hidden_layers", type=int, default=3)
-    parser.add_argument("--time_embedding", type=str, default="sinusoidal", choices=["sinusoidal", "learnable", "linear", "zero"])
-    parser.add_argument("--input_embedding", type=str, default="sinusoidal", choices=["sinusoidal", "learnable", "linear", "identity"])
-    parser.add_argument("--save_images_step", type=int, default=1)
-    config = parser.parse_args()
-
-    # svg_path = "M -50 0 L -20 -15 L -20 -3 L 20 -3 L 20 -12 L 40 -12 L 30 0 L 40 12 L 20 12 L 20 3 L -20 3 L -20 15 Z"
-    svg_path = "M -40 -10 L -30 -20 L -35 -30 L -20 -15 L 0 -10 L 20 -40 L 40 -25 L 15 -5 L 45 10 L 35 15 L 20 35 L 10 25 L 0 20 L -15 30 L -10 15 L -30 0 L -45 0 L -35 -5 Z"
-
-    outdir = f"exps/{config.experiment_name}"
-    os.makedirs(outdir, exist_ok=True)
-    dataset = svg_path_to_2d(svg_path, outdir)
+def train_ddim(svg_path: str, num_points: int, noise_scale: float, model_path: str, model_name: str, config):
+    '''
+    input : 
+        svg_path : svg path data (ex: M 40 5 L 15 -10 L -5 10 L -30 -15 L -45 0 L -25 15 L -5 30 L 20 5 Z)
+        num_points : the number of dots to composite the svg graph
+        noise_scale : jitter scale, rng value to each dot
+    '''
+    dataset = svg_path_to_2d(svg_path, num_points, noise_scale)
     dataloader = DataLoader(dataset, batch_size=config.train_batch_size, shuffle=True, drop_last=True)
-
     model = MLP(
         hidden_size=config.hidden_size,
         hidden_layers=config.hidden_layers,
@@ -237,14 +175,13 @@ if __name__ == "__main__":
     )
 
     global_step = 0
-    frames = []
     losses = []
     print("Training model...")
     for epoch in range(config.num_epochs):
         model.train()
         progress_bar = tqdm(total=len(dataloader))
         progress_bar.set_description(f"Epoch {epoch}")
-        for step, batch in enumerate(dataloader):
+        for batch in dataloader:
             batch = batch[0]
             noise = torch.randn(batch.shape)
             timesteps = torch.randint(
@@ -266,65 +203,5 @@ if __name__ == "__main__":
             progress_bar.set_postfix(**logs)
             global_step += 1
         progress_bar.close()
-
-        if epoch % config.save_images_step == 0 or epoch == config.num_epochs - 1:
-            # generate data with the model to later visualize the learning process
-            model.eval()
-            sample = torch.randn(config.eval_batch_size, 2)
-            noise_scheduler.set_timesteps(config.inference_steps)
-            timesteps = noise_scheduler.timesteps.tolist()
-            for i, t_val in enumerate(tqdm(timesteps)):
-                t = torch.tensor([t_val] * config.eval_batch_size).long()
-                if i < len(timesteps) - 1:
-                    prev_t_val = timesteps[i + 1]
-                else:
-                    prev_t_val = -1
-                with torch.no_grad():
-                    residual = model(sample, t)
-                sample = noise_scheduler.ddim_step(
-                    model_output=residual, 
-                    timestep=t_val, 
-                    prev_timestep=prev_t_val, 
-                    sample=sample
-                )
-            frames.append(sample.numpy())
-            # model.eval()
-            # sample = torch.randn(config.eval_batch_size, 2)
-            # timesteps = list(range(len(noise_scheduler)))[::-1]
-            # for i, t in enumerate(tqdm(timesteps)):
-            #     t = torch.from_numpy(np.repeat(t, config.eval_batch_size)).long()
-            #     with torch.no_grad():
-            #         residual = model(sample, t)
-            #     sample = noise_scheduler.step(residual, t[0], sample)
-            # frames.append(sample.numpy())
-
-    print("Saving model...")
-    torch.save(model.state_dict(), f"{outdir}/model.pth")
-
-    print("Saving images...")
-    imgdir = f"{outdir}/images"
-    os.makedirs(imgdir, exist_ok=True)
-    frames = np.stack(frames)
-    xmin, xmax = -6, 6
-    ymin, ymax = -6, 6
-    for i, frame in enumerate(frames):
-        plt.figure(figsize=(10, 10))
-        plt.scatter(frame[:, 0], frame[:, 1])
-        plt.xlim(xmin, xmax)
-        plt.ylim(ymin, ymax)
-        plt.savefig(f"{imgdir}/{i:04}.png")
-        plt.close()
-
-    print("Saving loss as numpy array...")
-    np.save(f"{outdir}/loss.npy", np.array(losses))
-    plt.figure(figsize=(8, 5))
-    plt.plot(losses, label="Loss", color="blue")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.title("Training Loss Curve")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(f"{outdir}/loss.png")
-
-    print("Saving frames...")
-    np.save(f"{outdir}/frames.npy", frames)
+    torch.save(model.state_dict(), f"{model_path}/{model_name}.pth")
+    return model

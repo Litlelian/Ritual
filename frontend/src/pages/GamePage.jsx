@@ -21,6 +21,7 @@ const GamePage = () => {
   const mapContainerRef = useRef(null);
   const requestRef = useRef();
   const playerStatsRef = useRef({
+    cooldown: FIRE_COOLDOWN,
     lastShotTime: 0, // 上次開槍的時間戳記
   });
   const keysPressed = useRef({}); // 紀錄目前被按住的所有按鍵
@@ -53,7 +54,7 @@ const GamePage = () => {
   const handleShoot = () => {
     const now = Date.now();
     const stats = playerStatsRef.current;
-    if (now - stats.lastShotTime < FIRE_COOLDOWN) {
+    if (now - stats.lastShotTime < stats.cooldown) {
       return; 
     }
     stats.lastShotTime = now;
