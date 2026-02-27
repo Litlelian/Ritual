@@ -30,7 +30,7 @@ export const useSpell = (spawnProjectile, playerPos, playerFacing, mousePos) => 
       const session = await ort.InferenceSession.create(fullUrl, { executionProviders: ['wasm'] });
       
       const numParticles = 200; 
-      const totalTimesteps = 70; 
+      const totalTimesteps = 50; 
 
       // ==========================================
       // Box-Muller 標準常態分佈產生器 N(0, 1)
@@ -76,6 +76,18 @@ export const useSpell = (spawnProjectile, playerPos, playerFacing, mousePos) => 
         
         const noisePred = results['noise_pred'].data; 
 
+        const currentMouseX = latestMousePos.current.x;
+        const currentMouseY = latestMousePos.current.y;
+        const currentPlayerX = latestPos.current.x;
+        const currentPlayerY = latestPos.current.y;
+        const targetAngle = Math.atan2(currentMouseY - currentPlayerY, currentMouseX - currentPlayerX);
+
+        const angleOffset = Math.PI; 
+        const theta = targetAngle - angleOffset;
+
+        const cosTheta = Math.cos(theta);
+        const sinTheta = Math.sin(theta);
+
         // 提取當前時間步 (t) 的公式參數
         const alpha_t = alphas[t];
         const alpha_cumprod_t = alphasCumprod[t];
@@ -107,10 +119,14 @@ export const useSpell = (spawnProjectile, playerPos, playerFacing, mousePos) => 
           currentNoise[i] = x;
           currentNoise[i + 1] = y;
 
-          // 轉換成 {x, y} 格式並放大比例供 React 渲染
+          // 放大並旋轉
+          let scaledX = x * 20; 
+          let scaledY = y * 10;
+          let rotatedX = scaledX * cosTheta - scaledY * sinTheta;
+          let rotatedY = scaledX * sinTheta + scaledY * cosTheta;
           nextParticles.push({
-            x: x * 20, // 這裡可以微調放大倍率
-            y: y * 20
+            x: rotatedX, 
+            y: rotatedY
           });
         }
 
