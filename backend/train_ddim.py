@@ -3,6 +3,8 @@ from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torch.utils.data import TensorDataset
+import onnx
+import os
 
 from tqdm.auto import tqdm
 import numpy as np
@@ -149,7 +151,7 @@ def svg_path_to_2d(path_string: str, num_points=500, noise_scale=0.05) -> list[f
     
     return TensorDataset(torch.from_numpy(X_final.astype(np.float32)))
 
-def train_ddim(svg_path: str, num_points: int, noise_scale: float, model_path: str, model_name: str, config):
+def train_ddim_generator(svg_path: str, num_points: int, noise_scale: float, model_path: str, model_name: str, config):
     '''
     input : 
         svg_path : svg path data (ex: M 40 5 L 15 -10 L -5 10 L -30 -15 L -45 0 L -25 15 L -5 30 L 20 5 Z)
@@ -157,27 +159,27 @@ def train_ddim(svg_path: str, num_points: int, noise_scale: float, model_path: s
         noise_scale : jitter scale, rng value to each dot
     '''
     dataset = svg_path_to_2d(svg_path, num_points, noise_scale)
-    dataloader = DataLoader(dataset, batch_size=config.train_batch_size, shuffle=True, drop_last=True)
+    dataloader = DataLoader(dataset, batch_size=config['train_batch_size'], shuffle=True, drop_last=True)
     model = MLP(
-        hidden_size=config.hidden_size,
-        hidden_layers=config.hidden_layers,
-        emb_size=config.embedding_size,
-        time_emb=config.time_embedding,
-        input_emb=config.input_embedding)
+        hidden_size=config['hidden_size'],
+        hidden_layers=config['hidden_layers'],
+        emb_size=config['embedding_size'],
+        time_emb=config['time_embedding'],
+        input_emb=config['input_embedding'])
 
     noise_scheduler = NoiseScheduler(
-        num_timesteps=config.num_timesteps,
-        beta_schedule=config.beta_schedule)
+        num_timesteps=config['num_timesteps'],
+        beta_schedule=config['beta_schedule'])
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=config.learning_rate,
+        lr=config['learning_rate'],
     )
 
+    total_steps = config['num_epochs'] * len(dataloader)
     global_step = 0
-    losses = []
     print("Training model...")
-    for epoch in range(config.num_epochs):
+    for epoch in range(config['num_epochs']):
         model.train()
         progress_bar = tqdm(total=len(dataloader))
         progress_bar.set_description(f"Epoch {epoch}")
@@ -199,9 +201,59 @@ def train_ddim(svg_path: str, num_points: int, noise_scale: float, model_path: s
 
             progress_bar.update(1)
             logs = {"loss": loss.detach().item(), "step": global_step}
-            losses.append(loss.detach().item())
             progress_bar.set_postfix(**logs)
             global_step += 1
+
+            if global_step % 5 == 0 or global_step == total_steps:
+                progress = (global_step / total_steps) * 100
+                yield {
+                    "status": "training",
+                    "progress": round(progress, 0),
+                    "loss": round(loss.item(), 4),
+                    "epoch": epoch,
+                }
         progress_bar.close()
     torch.save(model.state_dict(), f"{model_path}/{model_name}.pth")
-    return model
+
+    # For ONNX
+    model.eval()
+    dummy_noisy = torch.randn(1, 2) 
+    dummy_timesteps = torch.tensor([10], dtype=torch.long)
+
+    onnx_path = f"{model_path}/{model_name}.onnx"
+
+    torch.onnx.export(
+        model, 
+        (dummy_noisy, dummy_timesteps), # 傳入模型的參數
+        onnx_path,
+        export_params=True,
+        opset_version=14,               # 建議用 14 以上的穩定版本
+        do_constant_folding=True,
+        input_names=['noisy_input', 'timesteps'], # 給前端呼叫用的變數名稱
+        output_names=['noise_pred'],
+        dynamic_axes={
+            'noisy_input': {0: 'batch_size'}, # 讓前端可以一次傳入多個粒子
+            'timesteps': {0: 'batch_size'},
+            'noise_pred': {0: 'batch_size'}
+        }
+    )
+
+    print(f"🔄 正在將外部權重合併至單一檔案: {onnx_path}")
+    # 讀取剛剛匯出的模型 (ONNX 套件會自動去抓旁邊那個 .data 檔)
+    onnx_model = onnx.load(onnx_path)
+
+    # 強制覆蓋原檔案，並嚴格宣告「不准拆分」！
+    onnx.save_model(
+        onnx_model, 
+        onnx_path, 
+        save_as_external_data=False,      # 絕對不准變成外部檔案
+        all_tensors_to_one_file=True      # 所有東西給我塞進同一個檔案
+    )
+
+    # (可選) 為了確保萬無一失，把旁邊那個沒用的 .data 垃圾檔刪掉
+    data_file_path = onnx_path + ".data"
+    if os.path.exists(data_file_path):
+        os.remove(data_file_path)
+        print(f"🗑️ 已清除多餘的外部權重檔: {data_file_path}")
+
+    yield {"status": "completed", "progress": 100, "onnx_url": f"/models/{model_name}.onnx"}

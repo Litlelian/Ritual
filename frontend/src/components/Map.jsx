@@ -3,11 +3,12 @@ import MapLayer from './MapLayer';
 import SightOverlay from './SightOverlay';
 import ProjectileLayer from './ProjectileLayers';
 import Player from './Players';
+import SpellParticleLayer from './SpellParticleLayer';
 
 const TILE_SIZE = 40;
 const ANIMATION_SPEED = 100;
 
-const Map = ({ mapData, playerPos, sprite, facing, isMoving, mousePos, projectiles }) => {
+const Map = ({ mapData, playerPos, sprite, facing, isMoving, mousePos, projectiles, particles, isGathering }) => {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -37,7 +38,7 @@ const Map = ({ mapData, playerPos, sprite, facing, isMoving, mousePos, projectil
       {/* 地圖背景 */}
       <MapLayer mapData={mapData} tileSize={TILE_SIZE} />
 
-      {/* 發射物 */}
+      {/* 發射物 (Phase 2: 法陣定型後，會由這裡接手飛行渲染) */}
       <ProjectileLayer projectiles={projectiles} />
 
       {/* 瞄準縣 */}
@@ -56,6 +57,15 @@ const Map = ({ mapData, playerPos, sprite, facing, isMoving, mousePos, projectil
         tick={tick}
         tileSize={TILE_SIZE}
       />
+
+      {/* ✨ 魔法集氣層 (Phase 1: 詠唱推論中，法陣環繞玩家) */}
+      <SpellParticleLayer 
+        particles={particles}
+        playerPos={playerPos}
+        tileSize={TILE_SIZE}
+        isGathering={isGathering}
+      />
+
     </div>
   );
 };

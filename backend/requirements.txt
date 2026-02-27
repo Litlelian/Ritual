@@ -7,3 +7,5 @@ torch
 matplotlib
 pandas
 scikit-learn
+onnx
+onnxscript

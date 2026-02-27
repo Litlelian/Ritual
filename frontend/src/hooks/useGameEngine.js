@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 export const useGameEngine = (MAP_DATA, TILE_SIZE, SPEED, PROJECTILE_SPEED, FIRE_COOLDOWN) => {
   // 所有 State (畫面需要的資料)
@@ -37,32 +37,65 @@ export const useGameEngine = (MAP_DATA, TILE_SIZE, SPEED, PROJECTILE_SPEED, FIRE
     });
   };
 
+  const spawnProjectile = useCallback((config = {}) => {
+    const { 
+      type = 'NORMAL', // 預設是普通攻擊
+      shape = null,    // 預設沒有形狀 (只有 MAGIC_ARRAY 會有)
+      targetX, 
+      targetY, 
+      speed = PROJECTILE_SPEED 
+    } = config;
+
+    const currentPos = posRef.current;
+    
+    // 計算發射起點 (主角中心)
+    const startX = currentPos.x + TILE_SIZE / 2;
+    const startY = currentPos.y + TILE_SIZE / 2;
+    
+    // 計算飛行方向向量
+    const dx = targetX - startX;
+    const dy = targetY - startY;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    
+    if (length === 0) return;
+
+    const vx = (dx / length) * speed;
+    const vy = (dy / length) * speed;
+
+    // 保留了 x, y 讓 ProjectileLayer 讀取
+    setProjectiles(prev => [...prev, { 
+      id: Date.now() + Math.random(), // 加上 random 避免同一毫秒發射多顆 ID 重複
+      type, 
+      shape, 
+      x: startX, 
+      y: startY, 
+      vx, 
+      vy 
+    }]);
+  }, [PROJECTILE_SPEED, TILE_SIZE]);
+
   // 發射邏輯
-  const handleShoot = () => {
+  const handleShoot = useCallback(() => {
     const now = Date.now();
     const stats = playerStatsRef.current;
     if (now - stats.lastShotTime < stats.cooldown) return; 
     stats.lastShotTime = now;
 
-    const currentPos = posRef.current; 
     const currentMouse = mouseRef.current;
-    const startX = currentPos.x + TILE_SIZE / 2;
-    const startY = currentPos.y + TILE_SIZE / 2;
-    const dx = currentMouse.x - startX;
-    const dy = currentMouse.y - startY;
-    const length = Math.sqrt(dx * dx + dy * dy);
     
-    if (length === 0) return; 
-
-    const vx = (dx / length) * PROJECTILE_SPEED;
-    const vy = (dy / length) * PROJECTILE_SPEED;
-
-    setProjectiles(prev => [...prev, { id: Date.now(), x: startX, y: startY, vx, vy }]);
-  };
+    // 呼叫通用的 spawnProjectile，目標是滑鼠當前位置
+    spawnProjectile({
+      type: 'NORMAL',
+      targetX: currentMouse.x,
+      targetY: currentMouse.y,
+      speed: PROJECTILE_SPEED
+    });
+  }, [spawnProjectile, PROJECTILE_SPEED]);
 
   // 更新迴圈
-  const update = () => {
+  const update = useCallback(() => {
     setPos(prev => {
+      // ... (保留你原本的移動控制與碰撞檢查邏輯，完全不用改) ...
       let moveX = 0; let moveY = 0;
       if (keysPressed.current['w'] || keysPressed.current['ArrowUp']) moveY -= 1;
       if (keysPressed.current['s'] || keysPressed.current['ArrowDown']) moveY += 1;
@@ -76,7 +109,6 @@ export const useGameEngine = (MAP_DATA, TILE_SIZE, SPEED, PROJECTILE_SPEED, FIRE
       if (moveX < 0) setFacing(-1); 
 
       if (moving) {
-        // 向量歸一化
         const length = Math.sqrt(moveX * moveX + moveY * moveY);
         moveX /= length;
         moveY /= length;
@@ -92,6 +124,7 @@ export const useGameEngine = (MAP_DATA, TILE_SIZE, SPEED, PROJECTILE_SPEED, FIRE
     });
 
     setProjectiles(prevProjs => {
+      // ... (保留你原本的子彈飛行與邊界/牆壁碰撞過濾，完全不用改) ...
       return prevProjs
         .map(p => ({ ...p, x: p.x + p.vx, y: p.y + p.vy }))
         .filter(p => {
@@ -108,7 +141,7 @@ export const useGameEngine = (MAP_DATA, TILE_SIZE, SPEED, PROJECTILE_SPEED, FIRE
     });
 
     requestRef.current = requestAnimationFrame(update);
-  };
+  }, [MAP_DATA, SPEED, TILE_SIZE]);
 
   // 事件綁定
   useEffect(() => {
@@ -145,6 +178,7 @@ export const useGameEngine = (MAP_DATA, TILE_SIZE, SPEED, PROJECTILE_SPEED, FIRE
     isMoving,
     mousePos,
     projectiles,
-    mapContainerRef // 跟外面的 div 綁定
+    mapContainerRef, // 跟外面的 div 綁定
+    spawnProjectile // ✨ 暴露給 GamePage 和 useSpell 使用
   };
 };
